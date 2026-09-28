@@ -1,0 +1,52 @@
+{
+  "name": "meeting-967",
+  "version": "1.11.0",
+  "private": true,
+  "type": "module",
+  "description": "Meeting 967 - بوت احترافي لإدارة اجتماعات الفرق داخل Discord",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed.js",
+    "deploy": "node scripts/deploy.js",
+    "lint": "node scripts/lint.js",
+    "test": "bash scripts/test-safe.sh",
+    "doctor": "node scripts/doctor.js",
+    "backup": "node scripts/backup.js",
+    "cleanup:teams": "node scripts/cleanup-team-duplicates.js",
+    "managed:start": "bash ops/botctl.sh start",
+    "managed:stop": "bash ops/botctl.sh stop",
+    "managed:restart": "bash ops/botctl.sh restart",
+    "managed:status": "bash ops/botctl.sh status",
+    "managed:logs": "bash ops/botctl.sh logs",
+    "boot:install": "bash ops/install-boot-hook.sh",
+    "boot:status": "bash ops/boot-status.sh",
+    "verify:member-search": "node scripts/verify-member-search.js",
+    "verify:smart-member-search": "node scripts/verify-smart-member-search.js",
+    "verify:google-drive": "node scripts/verify-google-drive.mjs",
+    "google-drive:authorize": "node scripts/google-drive-authorize.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1116.0",
+    "@aws-sdk/s3-request-presigner": "^3.1116.0",
+    "@discordjs/voice": "0.19.2",
+    "@google/genai": "^2.24.0",
+    "discord.js": "14.27.0",
+    "docx": "9.7.1",
+    "dotenv": "17.2.2",
+    "googleapis": "176.0.0",
+    "libsodium-wrappers": "0.7.15",
+    "luxon": "3.7.2",
+    "pg": "8.16.3",
+    "undici": "6.21.0",
+    "zod": "4.1.5"
+  },
+  "devDependencies": {
+    "jszip": "3.10.1"
+  }
+}

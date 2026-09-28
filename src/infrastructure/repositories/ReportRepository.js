@@ -1,0 +1,2 @@
+import {randomUUID} from 'node:crypto';
+export class ReportRepository{constructor(db){this.db=db;} async add({meetingId,actorId,path,sha256,metadata={}},client=this.db){const id=randomUUID();const {rows}=await client.query('INSERT INTO reports(id,meeting_id,generated_by,path,sha256,metadata) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[id,meetingId,actorId,path,sha256,metadata]);return rows[0];} async latest(meetingId){const {rows}=await this.db.query('SELECT * FROM reports WHERE meeting_id=$1 ORDER BY generated_at DESC LIMIT 1',[meetingId]);return rows[0]??null;}}

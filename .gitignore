@@ -1,0 +1,59 @@
+node_modules/
+.env
+.env.*
+!.env.example
+!.env.google-drive.example
+storage/reports/*
+!storage/reports/.gitkeep
+storage/recordings/*
+!storage/recordings/.gitkeep
+storage/backups/*
+!storage/backups/.gitkeep
+*.log
+.DS_Store
+
+# Runtime supervision
+.runtime/
+logs/
+
+# Local OAuth credentials
+config/google-drive-oauth-client.json
+config/google-drive-oauth-token.json
+
+# Local update/rollback backups
+.update-backups/
+backups/
+
+# Runtime-generated data
+storage/archive-documents/
+storage/membership-reviews/
+storage/performance-reports/
+
+# Temporary/accidental files
+member:membership:support
+*.tgz
+
+# Historical local backups
+.backup-*/
+**/.backup-*/
+*.backup
+*.backup-*
+*.bak
+*.bak-*
+*.before-*
+**/__pycache__/
+__pycache__/
+
+# Local generated storage
+storage/*
+!storage/reports/
+!storage/reports/.gitkeep
+!storage/recordings/
+!storage/recordings/.gitkeep
+!storage/backups/
+!storage/backups/.gitkeep
+
+# Archives and temporary packages
+*.tgz
+*.tar.gz
+*.zip

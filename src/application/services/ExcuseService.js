@@ -1,0 +1,9 @@
+import { z } from 'zod';
+import { withTransaction } from '../../infrastructure/db/pool.js';
+import { assertExcuseDecision } from '../../core/excuses/state.js';
+import { AppError } from '../../core/errors/AppError.js';
+export class ExcuseService{
+  constructor({excuses,meetings,teams,audit}){this.excuses=excuses;this.meetings=meetings;this.teams=teams;this.audit=audit;}
+  async submit({guildId,userId,meetingId,reason}){reason=z.string().trim().min(3).max(1000).parse(reason);const meeting=await this.meetings.get(meetingId);if(!meeting||String(meeting.guild_id)!==String(guildId))throw new AppError('NOT_FOUND','الاجتماع غير موجود.');if(!['upcoming','postponed'].includes(meeting.status))throw new AppError('EXCUSE_CLOSED','لا يمكن تقديم اعتذار لهذا الاجتماع الآن.');const userTeams=await this.teams.teamsForUser(guildId,userId);if(!userTeams.some(t=>t.id===meeting.team_id))throw new AppError('WRONG_TEAM','لا يمكنك تقديم اعتذار لاجتماع فريق آخر.');try{return await withTransaction(async c=>{const excuse=await this.excuses.submit({meetingId,userId,reason},c);await this.audit.log({guildId,actorId:userId,action:'excuse.submit',targetType:'excuse',targetId:excuse.id,newValue:{meetingId,reason}},c);return excuse;});}catch(e){if(e.code==='23505')throw new AppError('DUPLICATE_EXCUSE','سبق أن قدمت اعتذارًا لهذا الاجتماع.');throw e;}}
+  async decide({guildId,id,status,actorId,note=''}){return withTransaction(async c=>{const current=await this.excuses.get(id);if(!current)throw new AppError('NOT_FOUND','طلب الاعتذار غير موجود.');assertExcuseDecision(current.status,status);const updated=await this.excuses.decide({id,status,actorId,note},c);await this.audit.log({guildId,actorId,action:`excuse.${status}`,targetType:'excuse',targetId:id,oldValue:{status:current.status},newValue:{status,note}},c);return updated;});}
+}

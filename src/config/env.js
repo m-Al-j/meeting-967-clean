@@ -18,7 +18,10 @@ export function getAppEnv() {
     DATABASE_URL: z.string().min(10),
     NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-    STORAGE_DIR: z.string().default('./storage')
+    STORAGE_DIR: z.string().default('./storage'),
+    AI_PROVIDER: z.enum(['auto','groq','gemini']).default('auto'),
+    GROQ_API_KEY: z.string().optional(),
+    GROQ_MODEL: z.string().default('openai/gpt-oss-20b')
   });
   return schema.parse({
     DISCORD_TOKEN: process.env.DISCORD_TOKEN,
@@ -28,6 +31,9 @@ export function getAppEnv() {
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
     LOG_LEVEL: process.env.LOG_LEVEL,
-    STORAGE_DIR: process.env.STORAGE_DIR
+    STORAGE_DIR: process.env.STORAGE_DIR,
+    AI_PROVIDER: process.env.AI_PROVIDER,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    GROQ_MODEL: process.env.GROQ_MODEL
   });
 }

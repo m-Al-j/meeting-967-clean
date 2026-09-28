@@ -4,9 +4,10 @@ import {parseLocalDateTime} from '../../utils/time.js';
 import {AppError} from '../../core/errors/AppError.js';
 import {AICodebaseService} from './AICodebaseService.js';
 import { AIMemberAccessService } from './AIMemberAccessService.js';
+import {GroqAIProvider} from './GroqAIProvider.js';
 
 const MAX_HISTORY=16;
-const MAX_OUTPUT=2200;
+const MAX_OUTPUT=3200;
 const PENDING_TTL=10*60_000;
 
 function clean(value,max=2400){
@@ -214,8 +215,11 @@ export class AIAgentService{
     this.memberAccess=new AIMemberAccessService({db,permissionService,logger});
   }
 
-  enabled(){return Boolean(String(this.env?.GEMINI_API_KEY??process.env.GEMINI_API_KEY??'').trim());}
+  enabled(){return Boolean(String(this.env?.GROQ_API_KEY??process.env.GROQ_API_KEY??this.env?.GEMINI_API_KEY??process.env.GEMINI_API_KEY??'').trim());}
   model(){return String(this.env?.GEMINI_MODEL??process.env.GEMINI_MODEL??'gemini-3.8-flash').trim();}
+  groqModel(){return String(this.env?.GROQ_MODEL??process.env.GROQ_MODEL??'openai/gpt-oss-20b').trim();}
+  aiProvider(){return String(this.env?.AI_PROVIDER??process.env.AI_PROVIDER??'auto').trim().toLowerCase();}
+  _groq(){return new GroqAIProvider({apiKey:String(this.env?.GROQ_API_KEY??process.env.GROQ_API_KEY??'').trim(),model:this.groqModel(),logger:this.logger});}
   key(subject){return `${subject.guildId}:${subject.userId}`;}
 
   _client(){
@@ -539,97 +543,169 @@ export class AIAgentService{
   async respond(subject,text){
     const q=clean(text,4000);
     if(!q)throw new AppError('AI_EMPTY','اكتب رسالتك أولًا.');
-    if(!this.enabled())return '⚠️ مساعد Gemini غير مفعّل. أضف GEMINI_API_KEY إلى .env ثم أعد تشغيل البوت.';
-    const client=this._client();
+
+    const provider=this.aiProvider();
+    const groqEnabled=this._groq().enabled();
+    const geminiEnabled=Boolean(String(this.env?.GEMINI_API_KEY??process.env.GEMINI_API_KEY??'').trim());
+
+    if(!groqEnabled && !geminiEnabled){
+      return '⚠️ AI 967 غير مفعّل حاليًا. أضف GROQ_API_KEY أو GEMINI_API_KEY إلى .env.';
+    }
+
     const zone=await this.resolveZone(subject);
     const context=await this.personalContext(subject);
     const history=this.history(subject);
     const codeEvidence=await this.codebase.evidence(q);
-    const system=`أنت AI 967 الرسمي داخل Meeting 967.
-عند السؤال عن كيفية استخدام البوت أو سبب سلوك ميزة، اعتمد أولًا على دليل الكود الفعلي المرفق من AICodebaseService ولا تخمّن.
-تتكلم العربية بوضوح وبأسلوب ودي ومباشر، وتفهم الفصحى والعامية اليمنية والخليجية.
-أنت وكيل تشغيلي للنظام وليس مجرد مساعد شرح.
+    const system=`أنت AI 967 الرسمي داخل Meeting 967، والمساعد التشغيلي الذكي للنظام.
+
+مصادر الحقيقة مرتبة:
+1) نتائج أدوات النظام وقاعدة البيانات الحالية.
+2) دليل الكود الفعلي.
+3) معرفة Meeting 967 المضمنة في السياق.
+4) المعرفة العامة فقط عند عدم وجود تعارض.
+
+هدفك: فهم سؤال العضو وربطه فعليًا بوظائف Meeting 967 ثم إعطاء جواب واضح ومباشر.
+
+اللغة:
+- العربية أولًا، وتفهم الفصحى والعامية اليمنية والخليجية.
+- افهم: وش، ايش، إيش، وين، فين، كيف، ليش، ابغى، ابي، ما يشتغل، وش عندي، وش فيه.
+- لا تطلب إعادة صياغة السؤال إذا كان المقصود واضحًا.
 
 قواعد:
-- عند السؤال عن اجتماعات عضو معيّن استخدم list_member_meetings مباشرة بعد تمرير اسم العضو. لا تستخدم list_meetings العامة ولا تطلب teamName أولًا إلا عند الحاجة لتوضيح العضو.
-- صلاحية الوصول للاجتماعات تُحسم من طبقة AIMemberAccessService حسب صلاحيات الطالب ونطاق الفريق.
-- استخدم الأدوات عندما تحتاج بيانات حقيقية أو عندما يطلب المستخدم تنفيذ عملية.
-- لا تخمّن اسم فريق أو عضو أو اجتماع إذا لم يكن معروفًا؛ استخدم أداة البحث.
-- عمليات إنشاء أو تعديل أو إلغاء البيانات ستتوقف عند التطبيق بمرحلة تأكيد، فلا تقل للمستخدم إنها نُفذت قبل تأكيده.
-- لا تكشف الأسرار أو المفاتيح أو محتوى .env أو SQL.
-- لا تكشف معرفات Discord أو UUID للمستخدم إلا إذا كانت ضرورية جدًا.
-- عند طلب "جدول" أو "كلف" أو "أنشئ" أو "عدّل" أو "ألغِ" استخدم الأدوات المناسبة.
-- استخدم توقيت النظام الحالي ${zone}، واكتب التواريخ في مدخلات الأدوات بصيغة YYYY-MM-DD HH:mm.
-- احرص على عدم إنشاء شيء مرتين في نفس الرد.
-- لا تنفذ أي عملية كتابة مباشرة؛ التطبيق يعترض أدوات الكتابة ويطلب تأكيدًا.`;
+- الأسئلة عن الاجتماعات والمهام والعضوية والنقاط والصلاحيات والبيانات الحية تحتاج أدوات النظام.
+- سؤال اجتماع عضو معيّن: استخدم list_member_meetings مباشرة.
+- لا تخمّن أسماء الفرق أو الأعضاء أو الاجتماعات.
+- لا تدّعي تنفيذ إنشاء أو تعديل أو إلغاء قبل التأكيد.
+- لا تكشف التوكنات أو مفاتيح API أو كلمات المرور أو محتوى .env.
+- لا تكشف معرّفات Discord إلا عند الحاجة التقنية المباشرة.
+- إذا لم تجد معلومة موثوقة بعد البحث قل بوضوح إن المعلومة غير متاحة حاليًا.
+- ابدأ بالإجابة مباشرة، وتجنب الحشو.
+- المنطقة الزمنية الحالية: ${zone}. صيغة الإدخال للتواريخ: YYYY-MM-DD HH:mm.`;
 
-    const contents=[
-      {role:'user',parts:[{text:`سياق العضو الحالي:
-${json(context)}
+    if((provider==='groq'||provider==='auto') && groqEnabled){
+      try{
+        const groq=this._groq();
+        const messages=[
+          {role:'system',content:system},
+          {role:'user',content:`سياق العضو الحالي:\n${json(context)}\n\nالمحادثة السابقة:\n${history.map(x=>`${x.role}: ${x.text}`).join('\n').slice(-9000)}\n\nرسالة المستخدم:\n${q}\n\nدليل الكود الفعلي المرتبط بالسؤال:\n${codeEvidence??'لا يوجد دليل كودي مباشر.'}`},
+        ];
 
-المحادثة السابقة:
-${history.map(x=>`${x.role}: ${x.text}`).join('\n').slice(-9000)}
+        for(let round=0;round<4;round++){
+          const response=await groq.chat({messages,tools:TOOL_DECLARATIONS});
+          const msg=response?.choices?.[0]?.message;
+          if(!msg)throw new Error('Groq returned no message');
 
-رسالة المستخدم:
-${q}
+          const calls=Array.isArray(msg.tool_calls)?msg.tool_calls:[];
+          if(!calls.length){
+            let answer=String(msg.content??'').trim();
+            if(!answer){
+              const retry=await groq.chat({messages,tools:[]});
+              const retryMsg=retry?.choices?.[0]?.message;
+              answer=String(retryMsg?.content??'').trim();
+            }
+            if(!answer)throw new Error('Groq returned an empty answer');
+            answer=clip(answer);
+            this.push(subject,'user',q);
+            this.push(subject,'assistant',answer);
+            return {kind:'text',text:answer};
+          }
 
-دليل الكود الفعلي الحالي المرتبط بالسؤال:
-${codeEvidence??'لم يتم العثور على دليل كودي مباشر.'}`}]},
-    ];
+          messages.push({role:'assistant',content:msg.content??'',tool_calls:calls});
 
-    const response=await client.models.generateContent({
-      model:this.model(),
-      contents,
-      config:{
-        systemInstruction:system,
-        tools:[{functionDeclarations:TOOL_DECLARATIONS}],
-        temperature:0.2,
-        maxOutputTokens:900,
-      },
-    });
+          for(const call of calls){
+            const name=String(call?.function?.name??'');
+            let args={};
+            try{args=JSON.parse(String(call?.function?.arguments??'{}'));}catch{throw new Error(`أداة ${name} أرسلت arguments غير صالحة`);}
 
-    const calls=response?.functionCalls??[];
-    if(!calls.length){
-      const answer=clip(response?.text||'لم أحصل على إجابة واضحة من Gemini.');
+            if(WRITE_TOOLS.has(name)){
+              const pending=await this.buildPending(name,args,subject);
+              const token=this.storePending(subject,pending);
+              const preview=this.pendingPreview(pending);
+              const msgText=`${preview}\n\nهل تريد تنفيذ العملية؟`;
+              this.push(subject,'user',q);
+              this.push(subject,'assistant',msgText);
+              return {kind:'confirmation',text:msgText,token,pending};
+            }
+
+            const result=await this.executeReadTool(name,args,subject);
+            messages.push({
+              role:'tool',
+              tool_call_id:String(call.id),
+              content:json(result),
+            });
+          }
+        }
+        throw new Error('Groq agent loop exceeded maximum iterations');
+      }catch(error){
+        this.logger?.warn?.('ai-groq-failed',{message:String(error?.message??error).slice(0,600),status:error?.status??null});
+        if(provider==='groq' || !geminiEnabled){
+          return {kind:'text',text:'تعذر تشغيل الذكاء الاصطناعي حاليًا. جرّب مرة أخرى بعد قليل.'};
+        }
+      }
+    }
+
+    if(geminiEnabled){
+      const client=this._client();
+      const contents=[{role:'user',parts:[{text:`سياق العضو الحالي:\n${json(context)}\n\nالمحادثة السابقة:\n${history.map(x=>`${x.role}: ${x.text}`).join('\n').slice(-9000)}\n\nرسالة المستخدم:\n${q}\n\nدليل الكود الفعلي الحالي:\n${codeEvidence??'لا يوجد دليل كودي مباشر.'}`}]},];
+      const response=await client.models.generateContent({
+        model:this.model(),
+        contents,
+        config:{
+          systemInstruction:system,
+          tools:[{functionDeclarations:TOOL_DECLARATIONS}],
+          temperature:0.2,
+          maxOutputTokens:4096,
+          thinkingConfig:{thinkingLevel:'medium'},
+        },
+      });
+
+      const calls=response?.functionCalls??[];
+      if(!calls.length){
+        let answer=String(response?.text??'').trim();
+        if(!answer){
+          const retry=await client.models.generateContent({
+            model:this.model(),
+            contents,
+            config:{systemInstruction:system,temperature:0.15,maxOutputTokens:4096,thinkingConfig:{thinkingLevel:'low'}},
+          });
+          answer=String(retry?.text??'').trim();
+        }
+        if(!answer)answer='ما قدرت أطلع ردًا موثوقًا حاليًا. جرّب السؤال بصياغة أقصر.';
+        answer=clip(answer);
+        this.push(subject,'user',q);
+        this.push(subject,'assistant',answer);
+        return {kind:'text',text:answer};
+      }
+
+      const outputs=[];
+      for(const call of calls){
+        const name=String(call.name);
+        const args=call.args??{};
+        if(WRITE_TOOLS.has(name)){
+          const pending=await this.buildPending(name,args,subject);
+          const token=this.storePending(subject,pending);
+          const preview=this.pendingPreview(pending);
+          const msgText=`${preview}\n\nهل تريد تنفيذ العملية؟`;
+          this.push(subject,'user',q);
+          this.push(subject,'assistant',msgText);
+          return {kind:'confirmation',text:msgText,token,pending};
+        }
+        const result=await this.executeReadTool(name,args,subject);
+        outputs.push(`${name}: ${json(result)}`);
+      }
+
+      const follow=await client.models.generateContent({
+        model:this.model(),
+        contents:[{role:'user',parts:[{text:`سؤال المستخدم:\n${q}\n\nنتائج الأدوات الفعلية:\n${outputs.join('\n').slice(0,16000)}\n\nاكتب جوابًا عربيًا مباشرًا اعتمادًا على النتائج فقط.`}]}],
+        config:{systemInstruction:system,temperature:0.2,maxOutputTokens:2500,thinkingConfig:{thinkingLevel:'medium'}},
+      });
+      const answer=clip(follow?.text||outputs.join('\n'));
       this.push(subject,'user',q);
       this.push(subject,'assistant',answer);
       return {kind:'text',text:answer};
     }
 
-    const outputs=[];
-    for(const call of calls){
-      const name=String(call.name);
-      const args=call.args??{};
-      if(WRITE_TOOLS.has(name)){
-        const pending=await this.buildPending(name,args,subject);
-        const token=this.storePending(subject,pending);
-        const preview=this.pendingPreview(pending);
-        const msg=`${preview}\n\nهل تريد تنفيذ العملية؟`;
-        this.push(subject,'user',q);
-        this.push(subject,'assistant',msg);
-        return {kind:'confirmation',text:msg,token,pending};
-      }
-      const result=await this.executeReadTool(name,args,subject);
-      outputs.push(`${name}: ${json(result)}`);
-    }
-
-    const follow=await client.models.generateContent({
-      model:this.model(),
-      contents:[
-        {role:'user',parts:[{text:`سؤال المستخدم:
-${q}
-
-نتائج الأدوات الفعلية:
-${outputs.join('\n').slice(0,16000)}
-
-اكتب جوابًا عربيًا مباشرًا اعتمادًا على هذه النتائج فقط.`}]},
-      ],
-      config:{systemInstruction:system,temperature:0.2,maxOutputTokens:800},
-    });
-    const answer=clip(follow?.text||outputs.join('\n'));
-    this.push(subject,'user',q);
-    this.push(subject,'assistant',answer);
-    return {kind:'text',text:answer};
+    return {kind:'text',text:'تعذر تشغيل AI 967 حاليًا.'};
   }
 
   pendingPreview(item){
